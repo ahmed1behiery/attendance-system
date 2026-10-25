@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>نظام ادارة الحضوروالغياب</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="hero-header">
+      <div>
+        <h1>نظام حساب الحضور والساعات الإضافية الذكي — تجميع تلقائي (كل 10 س = يوم)</h1>
+        <p>تجميع كل 10 ساعات تلقائياً في خانة الأيام ووضع الباقي في خانة الساعات — مع خصم الخروج وسط اليوم من الساعات أولاً ثم من الأيام</p>
+      </div>
+      <div class="hero-actions no-print">
+        <button class="btn-glossy btn-emerald" onclick="exportCurrentWeekCSV()">📥 Excel (الأسبوع الحالي)</button>
+        <button class="btn-glossy btn-blue" onclick="exportFullMonthExcel()">📊 Excel (الشهر كامل 4 أسابيع)</button>
+        <button class="btn-glossy btn-dark" onclick="downloadBackupFile()">💾 حفظ ملف أرشيف</button>
+        <button class="btn-glossy btn-amber" onclick="document.getElementById('importFileInput').click()">📂 فتح ملف أرشيف</button>
+        <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="importBackupFile(event)" />
+        <button class="btn-glossy btn-violet" onclick="window.print()">🖨️ طباعة</button>
+      </div>
+    </div>
+
+    <div class="period-bar no-print">
+      <div class="month-selector-group">
+        <span class="month-badge-label">🗓️ الشهر الحالي:</span>
+        <select id="monthSelect" class="month-select" onchange="switchMonth(this.value)"></select>
+        <input type="month" id="newMonthPicker" class="new-month-input" value="2026-10" />
+        <button class="btn-glossy btn-blue" onclick="addOrOpenMonth()">+ فتح / إضافة شهر جديد</button>
+        <button class="btn-glossy btn-dark" id="btnToggleSecretMoney" onclick="toggleSecretMoneyPanel()">🔒 لوحة المبالغ والخزنة السرية</button>
+      </div>
+
+      <div class="week-tabs">
+        <button class="week-tab active" id="tab_w1" onclick="switchWeek('w1')">الأسبوع الأول</button>
+        <button class="week-tab" id="tab_w2" onclick="switchWeek('w2')">الأسبوع الثاني</button>
+        <button class="week-tab" id="tab_w3" onclick="switchWeek('w3')">الأسبوع الثالث</button>
+        <button class="week-tab" id="tab_w4" onclick="switchWeek('w4')">الأسبوع الرابع</button>
+        <button class="week-tab summary-tab" id="tab_summary" onclick="switchWeek('summary')">📊 تجميعي الشهر الكامل</button>
+      </div>
+    </div>
+
+    <div class="control-grid no-print">
+      <div class="glass-card">
+        <div class="card-head">
+          <span>👤 إضافة أسماء جديدة وإجراءات سريعة</span>
+          <span style="font-size:0.74rem; color:var(--muted);">يُضاف الاسم لكل أسابيع الشهر</span>
+        </div>
+        <div class="add-box-row" style="margin-bottom: 10px;">
+          <input type="text" id="newEmpNameInput" class="modern-input" placeholder="اكتب الاسم هنا ثم اضغط إضافة..." onkeydown="if(event.key==='Enter') addEmployeeFromBar()" />
+          <button class="btn-glossy btn-blue" onclick="addEmployeeFromBar()">+ إضافة الاسم</button>
+        </div>
+        <div class="add-box-row">
+          <button class="btn-glossy btn-emerald" style="flex:1;" onclick="unifyAllTimesToShift()">⚡ توحيد مواعيد الكل (من 8:00 ص إلى 6:00 م)</button>
+          <button class="btn-glossy btn-rose" onclick="clearCurrentWeek()">🗑️ تصفير الأسبوع الحالي</button>
+          <button class="btn-glossy btn-amber" onclick="clearEntireCurrentMonth()">🔄 تصفير الشهر بالكامل</button>
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <div class="card-head">
+          <span>⚙️ إعدادات مواعيد الدوام وشرط حساب الساعات</span>
+          <span style="font-size:0.74rem; color:var(--emerald-dark);">حفظ تلقائي</span>
+        </div>
+        <div class="settings-row">
+          <div class="field-item">
+            <label>بداية الدوام الأساسي</label>
+            <input type="time" id="cfgStart" value="08:00" onchange="updateConfig()" />
+          </div>
+          <div class="field-item">
+            <label>نهاية الدوام الأساسي</label>
+            <input type="time" id="cfgEnd" value="18:00" onchange="updateConfig()" />
+          </div>
+          <div class="field-item">
+            <label>متى يُحسب اليوم «ساعات فقط»؟</label>
+            <select id="cfgHoursThreshold" onchange="updateConfig()">
+              <option value="8" selected>إذا حضر أقل من 8 ساعات (مثلاً بعد 10 ص)</option>
+              <option value="9">إذا حضر أقل من 9 ساعات (مثلاً بعد 9 ص)</option>
+              <option value="10">أي نقص عن 10 ساعات يُحسب ساعات</option>
+              <option value="7">إذا حضر أقل من 7 ساعات (مثلاً بعد 11 ص)</option>
+            </select>
+          </div>
+          <div class="field-item">
+            <label>فترة السماح الصباحية</label>
+            <select id="cfgGrace" onchange="updateConfig()">
+              <option value="0" selected>بدون سماح (بالدقيقة)</option>
+              <option value="15">15 دقيقة سماح</option>
+              <option value="30">30 دقيقة سماح</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-box">
+        <div><div class="label" id="kpiTitlePeriod">البيان الحالي</div><div class="val" id="kpiEmpCount">21 موظف</div></div>
+        <div class="kpi-icon btn-blue">👥</div>
+      </div>
+      <div class="kpi-box">
+        <div><div class="label">إجمالي الأيام (بعد تجميع الـ 10 س)</div><div class="val" id="kpiTotalDays">0 يوم</div></div>
+        <div class="kpi-icon btn-violet">📅</div>
+      </div>
+      <div class="kpi-box">
+        <div><div class="label">صافي الساعات المتبقية</div><div class="val" id="kpiTotalPartialHours" style="color:var(--sky-dark);">0 س</div></div>
+        <div class="kpi-icon btn-blue" style="background:linear-gradient(135deg,#0284c7,#0369a1);">⏳</div>
+      </div>
+      <div class="kpi-box">
+        <div><div class="label">إجمالي الخروج وسط اليوم والتأخير</div><div class="val" id="kpiTotalExit" style="color:var(--rose-dark);">0 س</div></div>
+        <div class="kpi-icon btn-rose">🚪</div>
+      </div>
+    </div>
+
+    <!-- شريط ملخص من قبض ومن لم يقبض -->
+    <div class="paid-status-banner">
+      <div class="paid-group paid-yes-box">
+        <div class="paid-box-title">✅ تم القبض (<span id="paidCountBadge">0</span>):</div>
+        <div class="paid-names-list" id="paidNamesContainer">لا يوجد</div>
+      </div>
+      <div class="paid-group paid-no-box">
+        <div class="paid-box-title">❌ لم يقبضوا بعد (<span id="unpaidCountBadge">0</span>):</div>
+        <div class="paid-names-list" id="unpaidNamesContainer">لا يوجد</div>
+      </div>
+    </div>
+
+    <!-- اللوحة المخفية لإدارة مبالغ الأسابيع الأربعة وخصومات التسوية الأربعة -->
+    <div id="secretMoneyPanel" class="glass-card secret-money-panel no-print" style="display:none;">
+      <div class="card-head">
+        <span>💰 لوحة الخزنة والسلف والخصومات التراكمية — <span id="secretPanelMonthLabel" style="color:var(--violet);"></span></span>
+        <button class="btn-del-mini" style="width:auto; padding:0 10px;" onclick="toggleSecretMoneyPanel()">إخفاء ✕</button>
+      </div>
+      <div style="font-size:0.78rem; color:#b45309; margin-bottom:10px; font-weight:700;">
+        💡 ملاحظة: يمكنك تسجيل مبالغ الأسبوع، أو إضافة مبلغ "خصم / تسوية" في أي أسبوع من الأسابيع الأربعة لخصم أي مستحقات قديمة دون الحاجة للبحث في الشهور السابقة.
+      </div>
+      <div class="table-container" style="margin-bottom:0;">
+        <table style="min-width:1200px;">
+          <thead>
+            <tr>
+              <th class="col-name">الاسم</th>
+              <th>مبلغ أسبوع 1</th>
+              <th>مبلغ أسبوع 2</th>
+              <th>مبلغ أسبوع 3</th>
+              <th>مبلغ أسبوع 4</th>
+              <th style="background:#fef3c7; color:#92400e;">إجمالي مبالغ الشهر</th>
+              <th style="background:#fee2e2; color:#991b1b;">خصم تسوية أسبوع 1</th>
+              <th style="background:#fee2e2; color:#991b1b;">خصم تسوية أسبوع 2</th>
+              <th style="background:#fee2e2; color:#991b1b;">خصم تسوية أسبوع 3</th>
+              <th style="background:#fee2e2; color:#991b1b;">خصم تسوية أسبوع 4</th>
+              <th style="background:#e0e7ff; color:#1e40af;">الصافي التراكمي النهائي</th>
+              <th>تم القبض بالشهر</th>
+            </tr>
+          </thead>
+          <tbody id="secretMoneyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="toolbar no-print">
+      <div style="flex:1; max-width:380px;">
+        <input type="text" id="searchInput" class="modern-input" style="width:100%;" placeholder="🔍 ابحث عن اسم موظف..." oninput="renderAll()" />
+      </div>
+    </div>
+
+    <div id="tableViewWrap" class="table-container">
+      <table>
+        <thead><tr id="tableHeadRow"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="no-print" style="display:flex; justify-content:center; margin: 18px 0 32px;">
+      <button class="btn-glossy btn-blue" style="padding:12px 26px; font-size:0.95rem;" onclick="addBlankEmployeeRow()">
+        ➕ إضافة صف اسم جديد في نهاية الكشف
+      </button>
+    </div>
+  </div>
+
+  <div id="toastBox" class="toast">تم الحفظ بنجاح ✨</div>
+
+  <script>
+    var DAYS = [
+      { key: 'sat', label: 'السبت', defaultOut: '18:00' },
+      { key: 'sun', label: 'الأحد', defaultOut: '18:00' },
+      { key: 'mon', label: 'الاثنين', defaultOut: '18:00' },
+      { key: 'tue', label: 'الثلاثاء', defaultOut: '18:00' },
+      { key: 'wed', label: 'الأربعاء', defaultOut: '18:00' },
+      { key: 'thu', label: 'الخميس', defaultOut: '18:00' }
+    ];
+
+    var WEEK_LABELS = {
+      w1: 'الأسبوع الأول',
+      w2: 'الأسبوع الثاني',
+      w3: 'الأسبوع الثالث',
+      w4: 'الأسبوع الرابع',
+      summary: 'تجميعي الشهر الكامل'
+    };
+
+    var ARABIC_MONTHS = [
+      'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+      'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+    ];
+
+    var DEFAULT_NAMES = [
+      'شهد النمر', 'مريم', 'أحمد', 'جنى النمر', 'أم محمد', 'هناء', 'الزنطى',
+      'أم ماجدة', 'لوجين', 'جنى', 'أم كريم', 'شمس', 'حبيبة', 'أم عمر',
+      'أم ملك', 'أم عبد الرحمن', 'مها', 'أم نورة', 'أميرة', 'عايدة', 'شهد'
+    ];
+
+    var showSecretMoneyGlobal = false;
+
+    function formatMonthLabel(monthKey) {
+      var parts = monthKey.split('-');
+      if (parts.length !== 2) return monthKey;
+      var y = parts[0];
+      var m = parseInt(parts[1], 10);
+      if (isNaN(m) || m < 1 || m > 12) return monthKey;
+      return ARABIC_MONTHS[m - 1] + ' ' + y;
+    }
+
+    function createUniformDays(startTime, endTime, isPresentDefault) {
+      var s = startTime || '08:00';
+      var e = endTime || '18:00';
+      var days = {};
+      for (var i = 0; i < DAYS.length; i++) {
+        var dKey = DAYS[i].key;
+        var pres = isPresentDefault ? (dKey !== 'thu') : false;
+        days[dKey] = {
+          present: pres,
+          inTime: s,
+          outTime: e,
+          breakOut: '',
+          breakIn: '',
+          note: ''
+        };
+      }
+      return days;
+    }
+
+    function createWeekObject(namesList, startTime, endTime) {
+      var s = startTime || '08:00';
+      var e = endTime || '18:00';
+      var emps = [];
+      for (var i = 0; i < namesList.length; i++) {
+        emps.push({
+          name: namesList[i],
+          paid: false,
+          weeklyAmount: 0,
+          days: createUniformDays(s, e, false)
+        });
+      }
+      return {
+        dayDefaults: { sat: e, sun: e, mon: e, tue: e, wed: e, thu: e },
+        employees: emps
+      };
+    }
+
+    function createMonthObject(monthKey, namesList, startTime, endTime) {
+      return {
+        key: monthKey,
+        label: formatMonthLabel(monthKey),
+        monthPaidMap: {},
+        settlementDeduct: { w1: {}, w2: {}, w3: {}, w4: {} },
+        weeks: {
+          w1: createWeekObject(namesList, startTime, endTime),
+          w2: createWeekObject(namesList, startTime, endTime),
+          w3: createWeekObject(namesList, startTime, endTime),
+          w4: createWeekObject(namesList, startTime, endTime)
+        }
+      };
+    }
+
+    // دالة لحماية البيانات القديمة وتحويل أي خصم مسجل مسبقاً إلى نظام الـ 4 أسابيع بدون أي أخطاء
+    function ensureSettlementStructure(mObj) {
+      if (!mObj) return;
+      if (!mObj.settlementDeduct || typeof mObj.settlementDeduct !== 'object') {
+        mObj.settlementDeduct = { w1: {}, w2: {}, w3: {}, w4: {} };
+        return;
+      }
+      if (!mObj.settlementDeduct.w1 || typeof mObj.settlementDeduct.w1 !== 'object') {
+        var oldEntries = {};
+        var keys = Object.keys(mObj.settlementDeduct);
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (k !== 'w1' && k !== 'w2' && k !== 'w3' && k !== 'w4') {
+            oldEntries[k] = Number(mObj.settlementDeduct[k]) || 0;
+          }
+        }
+        mObj.settlementDeduct = {
+          w1: oldEntries,
+          w2: (mObj.settlementDeduct.w2 && typeof mObj.settlementDeduct.w2 === 'object') ? mObj.settlementDeduct.w2 : {},
+          w3: (mObj.settlementDeduct.w3 && typeof mObj.settlementDeduct.w3 === 'object') ? mObj.settlementDeduct.w3 : {},
+          w4: (mObj.settlementDeduct.w4 && typeof mObj.settlementDeduct.w4 === 'object') ? mObj.settlementDeduct.w4 : {}
+        };
+      } else {
+        if (!mObj.settlementDeduct.w2 || typeof mObj.settlementDeduct.w2 !== 'object') mObj.settlementDeduct.w2 = {};
+        if (!mObj.settlementDeduct.w3 || typeof mObj.settlementDeduct.w3 !== 'object') mObj.settlementDeduct.w3 = {};
+        if (!mObj.settlementDeduct.w4 || typeof mObj.settlementDeduct.w4 !== 'object') mObj.settlementDeduct.w4 = {};
+      }
+    }
+
+    function getMonthSettlementDeductTotal(mObj, empName) {
+      if (!mObj) return 0;
+      ensureSettlementStructure(mObj);
+      return (Number(mObj.settlementDeduct.w1[empName]) || 0) +
+             (Number(mObj.settlementDeduct.w2[empName]) || 0) +
+             (Number(mObj.settlementDeduct.w3[empName]) || 0) +
+             (Number(mObj.settlementDeduct.w4[empName]) || 0);
+    }
+
+    var state = {
+      config: { start: '08:00', end: '18:00', graceMinutes: 0, hoursThreshold: 8 },
+      currentMonth: '2026-10',
+      currentWeek: 'w1',
+      months: {}
+    };
+
+    function showToast(msg) {
+      var t = document.getElementById('toastBox');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(function() { t.classList.remove('show'); }, 2300);
+    }
+
+    function getCurrentWeekObj() {
+      var m = state.months[state.currentMonth];
+      if (!m) return null;
+      var wKey = state.currentWeek === 'summary' ? 'w1' : state.currentWeek;
+      return m.weeks[wKey];
+    }
+
+    function parseMins(t) {
+      if (!t || t.indexOf(':') === -1) return null;
+      var parts = t.split(':');
+      var h = parseInt(parts[0], 10);
+      var m = parseInt(parts[1], 10);
+      return (isNaN(h) || isNaN(m)) ? null : (h * 60 + m);
+    }
+
+    function formatMins(mins) {
+      var sign = mins < 0 ? '-' : '';
+      var abs = Math.round(Math.abs(mins));
+      var h = Math.floor(abs / 60);
+      var m = abs % 60;
+      if (h === 0 && m === 0) return '0 س';
+      if (h > 0 && m === 0) return sign + h + ' س';
+      if (h === 0 && m > 0) return sign + m + ' د';
+      if (m === 30) return sign + h + '.5 س';
+      return sign + h + ' س و ' + m + ' د';
+    }
+
+    function getShiftBounds(config) {
+      var sStart = parseMins(config.start);
+      var shiftStart = sStart !== null ? sStart : 480;
+      var sEnd = parseMins(config.end);
+      var shiftEnd = sEnd !== null ? sEnd : 1080;
+      if (shiftEnd <= shiftStart) shiftEnd += 24 * 60;
+      return { shiftStart: shiftStart, shiftEnd: shiftEnd, standardDayMins: Math.max(60, shiftEnd - shiftStart) };
+    }
+
+    function calculateDay(dayObj, config) {
+      if (!dayObj || !dayObj.present) {
+        return {
+          present: false,
+          isHoursOnly: false,
+          workedMins: 0,
+          overtimeMins: 0,
+          exitMins: 0,
+          lateOrEarlyMins: 0,
+          missingMins: 0
+        };
+      }
+      var bounds = getShiftBounds(config);
+      var shiftStart = bounds.shiftStart;
+      var shiftEnd = bounds.shiftEnd;
+
+      var aIn = parseMins(dayObj.inTime);
+      var actualIn = aIn !== null ? aIn : shiftStart;
+      var aOut = parseMins(dayObj.outTime);
+      var actualOut = aOut !== null ? aOut : shiftEnd;
+      if (actualOut <= actualIn) actualOut += 24 * 60;
+
+      var exitMins = 0;
+      var bOut = parseMins(dayObj.breakOut);
+      var bIn = parseMins(dayObj.breakIn);
+      if (bOut !== null && bIn !== null) {
+        if (bIn < bOut) bIn += 24 * 60;
+        exitMins = Math.max(0, bIn - bOut);
+      }
+
+      var overlapStart = Math.max(actualIn, shiftStart);
+      var overlapEnd = Math.min(actualOut, shiftEnd);
+      var spanInsideShiftMins = Math.max(0, overlapEnd - overlapStart);
+
+      var thresholdHours = Number(config.hoursThreshold) || 8;
+      var thresholdMins = thresholdHours * 60;
+      var isHoursOnly = (spanInsideShiftMins < thresholdMins);
+
+      if (isHoursOnly) {
+        var grossHoursWorked = Math.max(0, actualOut - actualIn);
+        return {
+          present: true,
+          isHoursOnly: true,
+          workedMins: grossHoursWorked,
+          overtimeMins: 0,
+          exitMins: exitMins,
+          lateOrEarlyMins: 0,
+          missingMins: exitMins
+        };
+      }
+
+      var rawLate = Math.max(0, actualIn - shiftStart);
+      var morningLate = rawLate > config.graceMinutes ? rawLate : 0;
+      var earlyLeave = Math.max(0, shiftEnd - actualOut);
+      var lateOrEarlyMins = morningLate + earlyLeave;
+      var missingMins = exitMins + lateOrEarlyMins;
+      var overtimeMins = Math.max(0, actualOut - shiftEnd);
+
+      return {
+        present: true,
+        isHoursOnly: false,
+        workedMins: Math.max(0, (actualOut - actualIn) - exitMins),
+        overtimeMins: overtimeMins,
+        exitMins: exitMins,
+        lateOrEarlyMins: lateOrEarlyMins,
+        missingMins: missingMins
+      };
+    }
+
+    function buildWeekOrMonthSummary(rawFullDays, rawPartialHoursMins, rawOTMins, rawExitMins, rawLateMins, config) {
+      var bounds = getShiftBounds(config);
+      var standardDayMins = bounds.standardDayMins;
+
+      var totalEarnedHoursMins = rawPartialHoursMins + rawOTMins;
+      var totalDeductMins = rawExitMins + rawLateMins;
+
+      var deductionSourceText = 'بدون خروج أو خصومات';
+      if (totalDeductMins > 0) {
+        if (totalEarnedHoursMins >= totalDeductMins) {
+          deductionSourceText = 'تم خصم (' + formatMins(totalDeductMins) + ') من رصيد الساعات';
+        } else if (totalEarnedHoursMins > 0) {
+          var remFromDays = totalDeductMins - totalEarnedHoursMins;
+          deductionSourceText = 'خصم (' + formatMins(totalEarnedHoursMins) + ') من الساعات و (' + formatMins(remFromDays) + ') من الأيام';
+        } else {
+          deductionSourceText = 'تم خصم (' + formatMins(totalDeductMins) + ') من الأيام لعدم وجود ساعات';
+        }
+      }
+
+      var netTotalMins = Math.max(0, (rawFullDays * standardDayMins) + totalEarnedHoursMins - totalDeductMins);
+
+      var finalDaysInColumn = Math.floor(netTotalMins / standardDayMins);
+      var finalHoursInColumn = netTotalMins % standardDayMins;
+      var extraDaysAddedFromHours = Math.max(0, finalDaysInColumn - rawFullDays);
+
+      var finalNetLabel = '';
+      if (finalDaysInColumn === 0 && finalHoursInColumn === 0) {
+        finalNetLabel = '0 يوم';
+      } else if (finalDaysInColumn > 0 && finalHoursInColumn === 0) {
+        finalNetLabel = finalDaysInColumn + (finalDaysInColumn === 1 ? ' يوم كامل' : (finalDaysInColumn === 2 ? ' يومان كاملان' : ' أيام كاملة'));
+      } else if (finalDaysInColumn === 0 && finalHoursInColumn > 0) {
+        finalNetLabel = '0 يوم و ' + formatMins(finalHoursInColumn);
+      } else {
+        finalNetLabel = finalDaysInColumn + ' يوم و ' + formatMins(finalHoursInColumn);
+      }
+
+      var detailsParts = [];
+      if (rawFullDays > 0) detailsParts.push('أيام أصلية: ' + rawFullDays);
+      if (totalEarnedHoursMins > 0) detailsParts.push('مجموع الساعات قبل التجميع: ' + formatMins(totalEarnedHoursMins));
+      if (extraDaysAddedFromHours > 0) detailsParts.push('أُضيف +' + extraDaysAddedFromHours + ' يوم من الساعات');
+
+      return {
+        rawFullDays: rawFullDays,
+        rawPartialHoursMins: rawPartialHoursMins,
+        rawOTMins: rawOTMins,
+        totalEarnedHoursMins: totalEarnedHoursMins,
+        rawExitMins: rawExitMins,
+        rawLateMins: rawLateMins,
+        totalDeductMins: totalDeductMins,
+        presentDays: finalDaysInColumn,
+        remainingHoursMins: finalHoursInColumn,
+        extraDaysAddedFromHours: extraDaysAddedFromHours,
+        finalNetLabel: finalNetLabel,
+        deductionSourceText: deductionSourceText,
+        detailsSubText: detailsParts.length > 0 ? detailsParts.join(' | ') : 'لا يوجد حضور مسجل'
+      };
+    }
+
+    function calculateEmployeeWeek(emp, config) {
+      var rawFullDays = 0;
+      var rawPartialHoursMins = 0;
+      var rawOTMins = 0;
+      var rawExitMins = 0;
+      var rawLateMins = 0;
+      var perDay = {};
+
+      for (var i = 0; i < DAYS.length; i++) {
+        var d = DAYS[i];
+        var res = calculateDay(emp.days[d.key], config);
+        perDay[d.key] = res;
+        if (res.present) {
+          rawExitMins += res.exitMins;
+          if (res.isHoursOnly) {
+            rawPartialHoursMins += res.workedMins;
+          } else {
+            rawFullDays += 1;
+            rawOTMins += res.overtimeMins;
+            rawLateMins += res.lateOrEarlyMins;
+          }
+        }
+      }
+
+      var summary = buildWeekOrMonthSummary(rawFullDays, rawPartialHoursMins, rawOTMins, rawExitMins, rawLateMins, config);
+      summary.perDay = perDay;
+      return summary;
+    }
+
+    function calculateEmployeeMonthSummary(empIdx, monthObj, config) {
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      var totalRawDays = 0;
+      var totalRawPartialMins = 0;
+      var totalRawOT = 0;
+      var totalRawExit = 0;
+      var totalRawLate = 0;
+      var totalMonthAmount = 0;
+      var paidWeeksCount = 0;
+      var weeksBreakdown = {};
+
+      for (var i = 0; i < wKeys.length; i++) {
+        var wk = wKeys[i];
+        var emp = monthObj.weeks[wk].employees[empIdx];
+        if (emp) {
+          var res = calculateEmployeeWeek(emp, config);
+          res.paid = Boolean(emp.paid);
+          res.weeklyAmount = Number(emp.weeklyAmount) || 0;
+          weeksBreakdown[wk] = res;
+          totalRawDays += res.rawFullDays;
+          totalRawPartialMins += res.rawPartialHoursMins;
+          totalRawOT += res.rawOTMins;
+          totalRawExit += res.rawExitMins;
+          totalRawLate += res.rawLateMins;
+          totalMonthAmount += res.weeklyAmount;
+          if (res.paid) paidWeeksCount++;
+        } else {
+          weeksBreakdown[wk] = { presentDays: 0, remainingHoursMins: 0, totalDeductMins: 0, finalNetLabel: '0 يوم', paid: false, weeklyAmount: 0 };
+        }
+      }
+
+      var monthNet = buildWeekOrMonthSummary(totalRawDays, totalRawPartialMins, totalRawOT, totalRawExit, totalRawLate, config);
+      monthNet.weeksBreakdown = weeksBreakdown;
+      monthNet.totalMonthAmount = totalMonthAmount;
+      monthNet.paidWeeksCount = paidWeeksCount;
+      return monthNet;
+    }
+
+    // حساب الرصيد التراكمي مع خصم التسويات للأربعة أسابيع
+    function getCumulativeMoneyForEmployee(empName, upToMonthKey) {
+      var keys = Object.keys(state.months).sort();
+      var total = 0;
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      for (var i = 0; i < keys.length; i++) {
+        var mKey = keys[i];
+        if (mKey > upToMonthKey) break;
+        var mObj = state.months[mKey];
+        if (!mObj || !mObj.weeks) continue;
+        ensureSettlementStructure(mObj);
+        for (var w = 0; w < wKeys.length; w++) {
+          var wk = wKeys[w];
+          var emps = mObj.weeks[wk].employees || [];
+          for (var e = 0; e < emps.length; e++) {
+            if (emps[e].name === empName) {
+              total += (Number(emps[e].weeklyAmount) || 0);
+            }
+          }
+          total -= (Number(mObj.settlementDeduct[wk][empName]) || 0);
+        }
+      }
+      return Math.max(0, total);
+    }
+
+    function isEmployeePaidInMonth(monthObj, empIdx, empName) {
+      if (monthObj.monthPaidMap && typeof monthObj.monthPaidMap[empName] === 'boolean') {
+        return monthObj.monthPaidMap[empName];
+      }
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      for (var w = 0; w < wKeys.length; w++) {
+        var emp = monthObj.weeks[wKeys[w]].employees[empIdx];
+        if (emp && emp.paid) return true;
+      }
+      return false;
+    }
+
+    function toggleEmployeeWeekPaid(empIdx, isChecked) {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj || !weekObj.employees[empIdx]) return;
+      weekObj.employees[empIdx].paid = Boolean(isChecked);
+      saveState();
+      renderAll();
+      showToast(isChecked ? 'تم التعليم: تم القبض ✅' : 'تم إلغاء علامة القبض');
+    }
+
+    function toggleEmployeeMonthPaid(empIdx, isChecked) {
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+      if (!monthObj.monthPaidMap) monthObj.monthPaidMap = {};
+      var emp = monthObj.weeks.w1.employees[empIdx];
+      if (!emp) return;
+      monthObj.monthPaidMap[emp.name] = Boolean(isChecked);
+      saveState();
+      renderAll();
+      showToast(isChecked ? 'تم تحديد قبض الشهر لـ ' + emp.name + ' ✅' : 'تم تحديث حالة قبض الشهر');
+    }
+
+    function updateEmployeeWeekMoney(empIdx, weekKey, val) {
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+      var targetWeek = weekKey || (state.currentWeek === 'summary' ? 'w1' : state.currentWeek);
+      var emp = monthObj.weeks[targetWeek].employees[empIdx];
+      if (!emp) return;
+      emp.weeklyAmount = parseFloat(val) || 0;
+      saveState();
+      renderAll();
+      showToast('تم حفظ المبلغ');
+    }
+
+    // حفظ قيمة الخصم / التسوية للأسبوع المحدد (w1, w2, w3, w4)
+    function updateSettlementDeduct(weekKey, empName, val) {
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+      ensureSettlementStructure(monthObj);
+      monthObj.settlementDeduct[weekKey][empName] = parseFloat(val) || 0;
+      saveState();
+      renderAll();
+      showToast('تم حفظ الخصم / التسوية بنجاح');
+    }
+
+    function toggleMoneyDrawer(empIdx) {
+      var box = document.getElementById('money_drawer_' + empIdx);
+      if (box) box.classList.toggle('open');
+    }
+
+    function toggleSecretMoneyPanel() {
+      showSecretMoneyGlobal = !showSecretMoneyGlobal;
+      var panel = document.getElementById('secretMoneyPanel');
+      var btn = document.getElementById('btnToggleSecretMoney');
+      if (panel) panel.style.display = showSecretMoneyGlobal ? 'block' : 'none';
+      if (btn) {
+        btn.textContent = showSecretMoneyGlobal ? '🔓 إخفاء لوحة الخزنة السرية' : '🔒 لوحة المبالغ والخزنة السرية';
+        btn.className = showSecretMoneyGlobal ? 'btn-glossy btn-amber' : 'btn-glossy btn-dark';
+      }
+      renderAll();
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('attendance_archive_v8', JSON.stringify(state));
+      } catch (e) {}
+    }
+
+    function loadState() {
+      try {
+        var saved = localStorage.getItem('attendance_archive_v8') || localStorage.getItem('attendance_archive_v7') || localStorage.getItem('attendance_archive_v6');
+        if (saved) {
+          var parsed = JSON.parse(saved);
+          if (parsed && parsed.months && Object.keys(parsed.months).length > 0) {
+            state = parsed;
+            if (!state.config.hoursThreshold) state.config.hoursThreshold = 8;
+            var mKeys = Object.keys(state.months);
+            for (var i = 0; i < mKeys.length; i++) {
+              ensureSettlementStructure(state.months[mKeys[i]]);
+            }
+            syncConfigInputs();
+            return;
+          }
+        }
+      } catch (e) {}
+
+      var defaultMonthKey = '2026-10';
+      state.currentMonth = defaultMonthKey;
+      state.currentWeek = 'w1';
+      state.months[defaultMonthKey] = createMonthObject(defaultMonthKey, DEFAULT_NAMES, state.config.start, state.config.end);
+      saveState();
+      syncConfigInputs();
+    }
+
+    function syncConfigInputs() {
+      document.getElementById('cfgStart').value = state.config.start || '08:00';
+      document.getElementById('cfgEnd').value = state.config.end || '18:00';
+      document.getElementById('cfgGrace').value = String(state.config.graceMinutes || 0);
+      document.getElementById('cfgHoursThreshold').value = String(state.config.hoursThreshold || 8);
+    }
+
+    function renderMonthSelector() {
+      var select = document.getElementById('monthSelect');
+      var keys = Object.keys(state.months).sort();
+      var html = '';
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var mObj = state.months[k];
+        var sel = (k === state.currentMonth) ? 'selected' : '';
+        html += '<option value="' + k + '" ' + sel + '>' + mObj.label + ' (' + k + ')</option>';
+      }
+      select.innerHTML = html;
+      document.getElementById('newMonthPicker').value = state.currentMonth;
+    }
+
+    function switchMonth(monthKey) {
+      if (!state.months[monthKey]) return;
+      state.currentMonth = monthKey;
+      saveState();
+      renderMonthSelector();
+      renderAll();
+      showToast('تم الانتقال إلى شهر ' + state.months[monthKey].label);
+    }
+
+    function addOrOpenMonth() {
+      var picker = document.getElementById('newMonthPicker');
+      var monthKey = picker.value;
+      if (!monthKey) {
+        showToast('يرجى تحديد الشهر والسنة أولاً');
+        return;
+      }
+      if (!state.months[monthKey]) {
+        var currentWeekObj = getCurrentWeekObj();
+        var names = currentWeekObj
+          ? currentWeekObj.employees.map(function(e) { return e.name; })
+          : DEFAULT_NAMES.slice();
+        state.months[monthKey] = createMonthObject(monthKey, names, state.config.start, state.config.end);
+        showToast('تم فتح شهر جديد بأسماء الموظفين ومتصفر بالكامل: ' + state.months[monthKey].label);
+      } else {
+        showToast('تم فتح شهر: ' + state.months[monthKey].label);
+      }
+      state.currentMonth = monthKey;
+      state.currentWeek = 'w1';
+      saveState();
+      renderMonthSelector();
+      updateWeekTabsUI();
+      renderAll();
+    }
+
+    function clearEntireCurrentMonth() {
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+      if (!confirm('هل تريد تصفير جميع الأسابيع الأربعة وعلامات الحضور في شهر ' + monthObj.label + '؟')) return;
+      var s = state.config.start || '08:00';
+      var e = state.config.end || '18:00';
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      monthObj.monthPaidMap = {};
+      monthObj.settlementDeduct = { w1: {}, w2: {}, w3: {}, w4: {} };
+      for (var w = 0; w < wKeys.length; w++) {
+        var wk = monthObj.weeks[wKeys[w]];
+        for (var i = 0; i < wk.employees.length; i++) {
+          wk.employees[i].days = createUniformDays(s, e, false);
+          wk.employees[i].paid = false;
+          wk.employees[i].weeklyAmount = 0;
+        }
+      }
+      saveState();
+      renderAll();
+      showToast('تم تصفير شهر ' + monthObj.label + ' بالكامل');
+    }
+
+    function switchWeek(weekKey) {
+      state.currentWeek = weekKey;
+      saveState();
+      updateWeekTabsUI();
+      renderAll();
+    }
+
+    function updateWeekTabsUI() {
+      var tabs = ['w1', 'w2', 'w3', 'w4', 'summary'];
+      for (var i = 0; i < tabs.length; i++) {
+        var t = document.getElementById('tab_' + tabs[i]);
+        if (t) t.classList.toggle('active', state.currentWeek === tabs[i]);
+      }
+    }
+
+    function unifyAllTimesToShift() {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      var s = state.config.start || '08:00';
+      var e = state.config.end || '18:00';
+
+      for (var dIdx = 0; dIdx < DAYS.length; dIdx++) {
+        weekObj.dayDefaults[DAYS[dIdx].key] = e;
+      }
+
+      for (var i = 0; i < weekObj.employees.length; i++) {
+        var emp = weekObj.employees[i];
+        for (var j = 0; j < DAYS.length; j++) {
+          var k = DAYS[j].key;
+          emp.days[k].inTime = s;
+          emp.days[k].outTime = e;
+          emp.days[k].breakOut = '';
+          emp.days[k].breakIn = '';
+          emp.days[k].note = '';
+        }
+      }
+      saveState();
+      renderAll();
+      showToast('تم توحيد مواعيد الكل من ' + s + ' إلى ' + e);
+    }
+
+    function clearCurrentWeek() {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      var s = state.config.start || '08:00';
+      var e = state.config.end || '18:00';
+      for (var i = 0; i < weekObj.employees.length; i++) {
+        weekObj.employees[i].days = createUniformDays(s, e, false);
+        weekObj.employees[i].paid = false;
+      }
+      saveState();
+      renderAll();
+      showToast('تم تصفير بيانات ' + WEEK_LABELS[state.currentWeek]);
+    }
+
+    function addEmployeeFromBar() {
+      var input = document.getElementById('newEmpNameInput');
+      var raw = input.value.trim();
+      if (!raw) { input.focus(); return; }
+      var parts = raw.split(/[,،]+/);
+      var added = [];
+      var monthObj = state.months[state.currentMonth];
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+
+      for (var i = 0; i < parts.length; i++) {
+        var name = parts[i].trim();
+        if (name) {
+          for (var w = 0; w < wKeys.length; w++) {
+            monthObj.weeks[wKeys[w]].employees.push({
+              name: name,
+              paid: false,
+              weeklyAmount: 0,
+              days: createUniformDays(state.config.start, state.config.end, false)
+            });
+          }
+          added.push(name);
+        }
+      }
+      input.value = '';
+      saveState();
+      renderAll();
+      showToast('تمت إضافة ' + added.join('، ') + ' لجميع أسابيع الشهر');
+    }
+
+    function addBlankEmployeeRow() {
+      var monthObj = state.months[state.currentMonth];
+      var count = monthObj.weeks.w1.employees.length + 1;
+      var newName = 'اسم جديد ' + count;
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      for (var w = 0; w < wKeys.length; w++) {
+        monthObj.weeks[wKeys[w]].employees.push({
+          name: newName,
+          paid: false,
+          weeklyAmount: 0,
+          days: createUniformDays(state.config.start, state.config.end, false)
+        });
+      }
+      saveState();
+      renderAll();
+      showToast('تمت إضافة صف جديد في آخر الكشف');
+      var inputs = document.querySelectorAll('.emp-name-input');
+      if (inputs.length > 0) {
+        var lastInput = inputs[inputs.length - 1];
+        lastInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        lastInput.focus();
+        lastInput.select();
+      }
+    }
+
+    function updateConfig() {
+      state.config.start = document.getElementById('cfgStart').value || '08:00';
+      state.config.end = document.getElementById('cfgEnd').value || '18:00';
+      state.config.graceMinutes = parseInt(document.getElementById('cfgGrace').value, 10) || 0;
+      state.config.hoursThreshold = parseInt(document.getElementById('cfgHoursThreshold').value, 10) || 8;
+      saveState();
+      renderAll();
+      showToast('تم تحديث إعدادات الحساب');
+    }
+
+    function updateDayBulkOut(dayKey, newOutTime) {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      weekObj.dayDefaults[dayKey] = newOutTime;
+      for (var i = 0; i < weekObj.employees.length; i++) {
+        if (weekObj.employees[i].days[dayKey]) {
+          weekObj.employees[i].days[dayKey].outTime = newOutTime;
+        }
+      }
+      saveState();
+      renderAll();
+      showToast('تم تعميم وقت انصراف اليوم');
+    }
+
+    function togglePresent(empIdx, dayKey) {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      var cur = weekObj.employees[empIdx].days[dayKey].present;
+      weekObj.employees[empIdx].days[dayKey].present = !cur;
+      saveState();
+      renderAll();
+    }
+
+    function onCellChange(empIdx, dayKey, field, value) {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      weekObj.employees[empIdx].days[dayKey][field] = value;
+      saveState();
+      renderAll();
+    }
+
+    function clearDayBreak(empIdx, dayKey) {
+      var weekObj = getCurrentWeekObj();
+      if (!weekObj) return;
+      weekObj.employees[empIdx].days[dayKey].breakOut = '';
+      weekObj.employees[empIdx].days[dayKey].breakIn = '';
+      saveState();
+      renderAll();
+      showToast('تم مسح فترة الخروج');
+    }
+
+    function toggleBreakBox(empIdx, dayKey) {
+      var box = document.getElementById('break_' + empIdx + '_' + dayKey);
+      if (box) box.classList.toggle('open');
+    }
+
+    function updateEmployeeName(empIdx, newName) {
+      var monthObj = state.months[state.currentMonth];
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      for (var w = 0; w < wKeys.length; w++) {
+        if (monthObj.weeks[wKeys[w]].employees[empIdx]) {
+          monthObj.weeks[wKeys[w]].employees[empIdx].name = newName;
+        }
+      }
+      saveState();
+      renderAll();
+    }
+
+    function deleteEmployee(empIdx) {
+      var monthObj = state.months[state.currentMonth];
+      var removed = monthObj.weeks.w1.employees[empIdx].name;
+      var wKeys = ['w1', 'w2', 'w3', 'w4'];
+      for (var w = 0; w < wKeys.length; w++) {
+        monthObj.weeks[wKeys[w]].employees.splice(empIdx, 1);
+      }
+      saveState();
+      renderAll();
+      showToast('تم حذف "' + removed + '"');
+    }
+
+    function renderPaidUnpaidBanner(paidList, unpaidList) {
+      document.getElementById('paidCountBadge').textContent = paidList.length;
+      document.getElementById('unpaidCountBadge').textContent = unpaidList.length;
+
+      var paidHtml = paidList.length > 0
+        ? paidList.map(function(n) { return '<span class="mini-badge b-ot">✓ ' + n + '</span>'; }).join(' ')
+        : '<span style="color:var(--muted); font-size:0.78rem;">لا يوجد أحد بعد</span>';
+
+      var unpaidHtml = unpaidList.length > 0
+        ? unpaidList.map(function(n) { return '<span class="mini-badge b-miss">✕ ' + n + '</span>'; }).join(' ')
+        : '<span class="mini-badge b-ot">الكل قبض بالكامل ✅</span>';
+
+      document.getElementById('paidNamesContainer').innerHTML = paidHtml;
+      document.getElementById('unpaidNamesContainer').innerHTML = unpaidHtml;
+    }
+
+    function renderSecretMoneyTable() {
+      if (!showSecretMoneyGlobal) return;
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+      document.getElementById('secretPanelMonthLabel').textContent = monthObj.label;
+
+      ensureSettlementStructure(monthObj);
+
+      var emps = monthObj.weeks.w1.employees;
+      var tbody = document.getElementById('secretMoneyTableBody');
+      var html = '';
+
+      for (var i = 0; i < emps.length; i++) {
+        var empName = emps[i].name;
+        var a1 = Number(monthObj.weeks.w1.employees[i].weeklyAmount) || 0;
+        var a2 = Number(monthObj.weeks.w2.employees[i].weeklyAmount) || 0;
+        var a3 = Number(monthObj.weeks.w3.employees[i].weeklyAmount) || 0;
+        var a4 = Number(monthObj.weeks.w4.employees[i].weeklyAmount) || 0;
+        var monthTotal = a1 + a2 + a3 + a4;
+
+        var d1 = Number(monthObj.settlementDeduct.w1[empName]) || 0;
+        var d2 = Number(monthObj.settlementDeduct.w2[empName]) || 0;
+        var d3 = Number(monthObj.settlementDeduct.w3[empName]) || 0;
+        var d4 = Number(monthObj.settlementDeduct.w4[empName]) || 0;
+
+        var cumulativeTotal = getCumulativeMoneyForEmployee(empName, state.currentMonth);
+        var isMonthPaid = isEmployeePaidInMonth(monthObj, i, empName);
+
+        html += '<tr>' +
+          '<td class="col-name"><strong>' + (i + 1) + '. ' + empName + '</strong></td>' +
+          '<td><input type="number" class="secret-money-input" value="' + (a1 || '') + '" placeholder="0" onchange="updateEmployeeWeekMoney(' + i + ', \'w1\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" value="' + (a2 || '') + '" placeholder="0" onchange="updateEmployeeWeekMoney(' + i + ', \'w2\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" value="' + (a3 || '') + '" placeholder="0" onchange="updateEmployeeWeekMoney(' + i + ', \'w3\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" value="' + (a4 || '') + '" placeholder="0" onchange="updateEmployeeWeekMoney(' + i + ', \'w4\', this.value)" /></td>' +
+          '<td style="background:#fffbeb; font-weight:900; color:#92400e;">' + monthTotal + ' ج.م</td>' +
+          '<td><input type="number" class="secret-money-input" style="border-color:#f43f5e;" value="' + (d1 || '') + '" placeholder="0" onchange="updateSettlementDeduct(\'w1\', \'' + empName + '\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" style="border-color:#f43f5e;" value="' + (d2 || '') + '" placeholder="0" onchange="updateSettlementDeduct(\'w2\', \'' + empName + '\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" style="border-color:#f43f5e;" value="' + (d3 || '') + '" placeholder="0" onchange="updateSettlementDeduct(\'w3\', \'' + empName + '\', this.value)" /></td>' +
+          '<td><input type="number" class="secret-money-input" style="border-color:#f43f5e;" value="' + (d4 || '') + '" placeholder="0" onchange="updateSettlementDeduct(\'w4\', \'' + empName + '\', this.value)" /></td>' +
+          '<td style="background:#eff6ff; font-weight:900; color:#1e40af;">' + cumulativeTotal + ' ج.م</td>' +
+          '<td>' +
+            '<label class="paid-check-wrap ' + (isMonthPaid ? 'is-paid' : '') + '">' +
+              '<input type="checkbox" ' + (isMonthPaid ? 'checked' : '') + ' onchange="toggleEmployeeMonthPaid(' + i + ', this.checked)" />' +
+              '<span>' + (isMonthPaid ? 'تم القبض ✓' : 'لم يقبض') + '</span>' +
+            '</label>' +
+          '</td>' +
+        '</tr>';
+      }
+      tbody.innerHTML = html;
+    }
+
+    function renderMonthlySummaryView(query) {
+      var monthObj = state.months[state.currentMonth];
+      var emps = monthObj.weeks.w1.employees;
+      var tr = document.getElementById('tableHeadRow');
+      var tbody = document.getElementById('tableBody');
+
+      tr.innerHTML =
+        '<th class="col-name">الاسم (' + emps.length + ')</th>' +
+        '<th>الأسبوع الأول<br><small>(الصافي بعد التجميع)</small></th>' +
+        '<th>الأسبوع الثاني<br><small>(الصافي بعد التجميع)</small></th>' +
+        '<th>الأسبوع الثالث<br><small>(الصافي بعد التجميع)</small></th>' +
+        '<th>الأسبوع الرابع<br><small>(الصافي بعد التجميع)</small></th>' +
+        '<th class="summary-cell">إجمالي الأيام بالشهر<br><small>(شامل تجميع كل 10 س)</small></th>' +
+        '<th class="summary-cell" style="background:#f0f9ff;">صافي الساعات المتبقية<br><small>(الزيادة عن الـ 10 س)</small></th>' +
+        '<th class="summary-cell">إجمالي الخروج والتأخير</th>' +
+        '<th class="summary-cell">الناتج النهائي للشهر<br><small>(أيام + ساعات)</small></th>' +
+        '<th class="summary-cell">تم القبض (نهاية الشهر)' + (showSecretMoneyGlobal ? '<br><small>+ الخزنة والخصومات</small>' : '') + '</th>';
+
+      var rowsHtml = '';
+      var grandDays = 0, grandRemHours = 0, grandDeduct = 0;
+      var paidNames = [], unpaidNames = [];
+
+      for (var idx = 0; idx < emps.length; idx++) {
+        var emp = emps[idx];
+        var mSum = calculateEmployeeMonthSummary(idx, monthObj, state.config);
+        grandDays += mSum.presentDays;
+        grandRemHours += mSum.remainingHoursMins;
+        grandDeduct += mSum.totalDeductMins;
+
+        var isMonthPaid = isEmployeePaidInMonth(monthObj, idx, emp.name);
+        if (isMonthPaid) {
+          paidNames.push(emp.name);
+        } else {
+          unpaidNames.push(emp.name);
+        }
+
+        if (query && emp.name.toLowerCase().indexOf(query) === -1) continue;
+
+        var wCells = '';
+        var wKeys = ['w1', 'w2', 'w3', 'w4'];
+        for (var w = 0; w < wKeys.length; w++) {
+          var wRes = mSum.weeksBreakdown[wKeys[w]];
+          wCells += '<td style="vertical-align:middle;">' +
+            '<div style="font-weight:800; font-size:0.85rem; margin-bottom:4px;">' + wRes.finalNetLabel + '</div>' +
+            '<div class="badges-wrap">' +
+              (wRes.totalEarnedHoursMins > 0 ? '<span class="mini-badge b-hours">ساعات: ' + formatMins(wRes.totalEarnedHoursMins) + '</span>' : '') +
+              (wRes.totalDeductMins > 0 ? '<span class="mini-badge b-exit">خروج/تأخير: -' + formatMins(wRes.totalDeductMins) + '</span>' : '') +
+              (wRes.paid ? '<span class="mini-badge b-ot">✓ قبض</span>' : '') +
+              (showSecretMoneyGlobal && wRes.weeklyAmount > 0 ? '<span class="mini-badge b-note">💰 ' + wRes.weeklyAmount + ' ج</span>' : '') +
+            '</div>' +
+          '</td>';
+        }
+
+        var cumulativeMoney = getCumulativeMoneyForEmployee(emp.name, state.currentMonth);
+        var deductVal = getMonthSettlementDeductTotal(monthObj, emp.name);
+
+        rowsHtml += '<tr>' +
+          '<td class="col-name"><div class="emp-row-box">' +
+            '<span class="emp-num">' + (idx + 1) + '</span>' +
+            '<strong style="font-size:0.9rem; padding:4px;">' + emp.name + '</strong>' +
+          '</div></td>' +
+          wCells +
+          '<td class="summary-cell">' +
+            '<div style="font-size:1rem; font-weight:900; color:var(--primary-dark);">' + mSum.presentDays + ' يوم</div>' +
+            (mSum.extraDaysAddedFromHours > 0 ? '<div class="sub-detail" style="color:#047857;">(منها +' + mSum.extraDaysAddedFromHours + ' يوم مجمّع من الساعات)</div>' : '') +
+          '</td>' +
+          '<td class="summary-cell" style="background:#f0f9ff;">' +
+            '<div style="font-size:0.95rem; font-weight:900; color:var(--sky-dark);">' + formatMins(mSum.remainingHoursMins) + '</div>' +
+            (mSum.totalEarnedHoursMins > 0 ? '<div class="sub-detail">إجمالي الساعات قبل التجميع: ' + formatMins(mSum.totalEarnedHoursMins) + '</div>' : '') +
+          '</td>' +
+          '<td class="summary-cell"><div style="font-size:0.9rem; font-weight:800; color:var(--rose-dark);">' + (mSum.totalDeductMins > 0 ? '-' + formatMins(mSum.totalDeductMins) : '0 س') + '</div></td>' +
+          '<td class="summary-cell"><div class="final-net-card">' +
+            '<div class="final-net-main">' + mSum.finalNetLabel + '</div>' +
+            '<div class="final-net-converted">' + mSum.deductionSourceText + '</div>' +
+            '<div class="final-net-sub">' + mSum.detailsSubText + '</div>' +
+          '</div></td>' +
+          '<td class="summary-cell">' +
+            '<label class="paid-check-wrap ' + (isMonthPaid ? 'is-paid' : '') + '">' +
+              '<input type="checkbox" ' + (isMonthPaid ? 'checked' : '') + ' onchange="toggleEmployeeMonthPaid(' + idx + ', this.checked)" />' +
+              '<span>' + (isMonthPaid ? 'تم القبض ✓' : 'لم يقبض ✕') + '</span>' +
+            '</label>' +
+            (mSum.paidWeeksCount > 0 ? '<div class="sub-detail" style="color:#047857;">قبض في ' + mSum.paidWeeksCount + ' أسابيع</div>' : '') +
+            (showSecretMoneyGlobal ? (
+              '<div style="margin-top:5px; padding-top:4px; border-top:1px dashed #cbd5e1; font-size:0.75rem; font-weight:800;">' +
+                '<div style="color:#b45309;">مبالغ الشهر: ' + mSum.totalMonthAmount + ' ج.م</div>' +
+                (deductVal > 0 ? '<div style="color:#991b1b;">خصم/تسوية: -' + deductVal + ' ج.م</div>' : '') +
+                '<div style="color:#1e40af;">الصافي التراكمي: ' + cumulativeMoney + ' ج.م</div>' +
+              '</div>'
+            ) : '') +
+          '</td>' +
+        '</tr>';
+      }
+
+      tbody.innerHTML = rowsHtml;
+      document.getElementById('kpiTitlePeriod').textContent = monthObj.label + ' (الشهر كامل)';
+      document.getElementById('kpiEmpCount').textContent = emps.length + ' موظف';
+      document.getElementById('kpiTotalDays').textContent = grandDays + ' يوم';
+      document.getElementById('kpiTotalPartialHours').textContent = formatMins(grandRemHours);
+      document.getElementById('kpiTotalExit').textContent = formatMins(grandDeduct);
+
+      renderPaidUnpaidBanner(paidNames, unpaidNames);
+      renderSecretMoneyTable();
+    }
+
+    function renderAll() {
+      var searchEl = document.getElementById('searchInput');
+      var query = searchEl ? searchEl.value.trim().toLowerCase() : '';
+      var monthObj = state.months[state.currentMonth];
+      if (!monthObj) return;
+
+      if (state.currentWeek === 'summary') {
+        renderMonthlySummaryView(query);
+        return;
+      }
+
+      var weekObj = getCurrentWeekObj();
+      var emps = weekObj.employees;
+
+      var tr = document.getElementById('tableHeadRow');
+      var headHtml = '<th class="col-name">الاسم (' + emps.length + ')</th>';
+      for (var i = 0; i < DAYS.length; i++) {
+        var d = DAYS[i];
+        var bulkVal = weekObj.dayDefaults[d.key] || state.config.end || '18:00';
+        headHtml += '<th><div class="day-head-wrap"><span>' + d.label + '</span><div class="day-bulk-pill no-print"><span>انصراف:</span><input type="time" value="' + bulkVal + '" onchange="updateDayBulkOut(\'' + d.key + '\', this.value)" /></div></div></th>';
+      }
+      headHtml +=
+        '<th class="summary-cell">قائمة الأيام<br><small>(الأيام + كل 10 ساعات = يوم)</small></th>' +
+        '<th class="summary-cell" style="background:#f0f9ff;">قائمة الساعات<br><small>(الساعات الزيادة بعد الـ 10 س)</small></th>' +
+        '<th class="summary-cell">الخروج وسط اليوم / تأخير<br><small>(يُخصم من الساعات أولاً)</small></th>' +
+        '<th class="summary-cell">الناتج النهائي للأسبوع<br><small>(أيام + ساعات صافية)</small></th>' +
+        '<th class="summary-cell">تم القبض<br><small>(صح / خطأ + مبلغ سري)</small></th>';
+      tr.innerHTML = headHtml;
+
+      var tbody = document.getElementById('tableBody');
+      var rowsHtml = '';
+
+      var grandDays = 0, grandRemHours = 0, grandDeduct = 0;
+      var paidNames = [], unpaidNames = [];
+
+      for (var empIdx = 0; empIdx < emps.length; empIdx++) {
+        var emp = emps[empIdx];
+        var w = calculateEmployeeWeek(emp, state.config);
+        grandDays += w.presentDays;
+        grandRemHours += w.remainingHoursMins;
+        grandDeduct += w.totalDeductMins;
+
+        var isPaidWeek = Boolean(emp.paid);
+        var weekMoney = Number(emp.weeklyAmount) || 0;
+        if (isPaidWeek) {
+          paidNames.push(emp.name);
+        } else {
+          unpaidNames.push(emp.name);
+        }
+
+        if (query && emp.name.toLowerCase().indexOf(query) === -1) continue;
+
+        var cellsHtml = '';
+
+        for (var j = 0; j < DAYS.length; j++) {
+          var dayInfo = DAYS[j];
+          var dayData = emp.days[dayInfo.key];
+          var calc = w.perDay[dayInfo.key];
+          var hasBreak = Boolean(dayData.breakOut && dayData.breakIn);
+
+          var badges = '';
+          var btnClass = 'absent';
+          var btnText = '✕ غائب';
+          var cellClass = 'is-absent';
+
+          if (dayData.present) {
+            if (calc.isHoursOnly) {
+              btnClass = 'hours-mode';
+              btnText = '⏱️ ساعات (' + formatMins(calc.workedMins) + ')';
+              cellClass = 'is-hours';
+              badges += '<span class="mini-badge b-hours">⏱️ جاي ' + formatMins(calc.workedMins) + '</span>';
+            } else {
+              btnClass = 'present';
+              btnText = '✓ يوم كامل';
+              cellClass = 'is-present';
+              if (calc.overtimeMins > 0) badges += '<span class="mini-badge b-ot">+' + formatMins(calc.overtimeMins) + ' إضافي</span>';
+              if (calc.lateOrEarlyMins > 0) badges += '<span class="mini-badge b-miss">-' + formatMins(calc.lateOrEarlyMins) + ' تأخير</span>';
+            }
+            if (calc.exitMins > 0) {
+              badges += '<span class="mini-badge b-exit">🚪 خرج وسط اليوم: -' + formatMins(calc.exitMins) + '</span>';
+            }
+            if (dayData.note) badges += '<span class="mini-badge b-note">' + dayData.note + '</span>';
+          }
+
+          var permBtnLabel = hasBreak ? ('🚪 خرج ' + formatMins(calc.exitMins)) : '🚪 + خروج وسط اليوم';
+
+          cellsHtml += '<td class="day-cell ' + cellClass + '">' +
+            '<div class="cell-header-bar">' +
+              '<button class="status-pill-btn ' + btnClass + '" onclick="togglePresent(' + empIdx + ', \'' + dayInfo.key + '\')">' + btnText + '</button>' +
+              (dayData.present ? '<button class="btn-perm-pill no-print ' + (hasBreak ? 'active' : '') + '" onclick="toggleBreakBox(' + empIdx + ', \'' + dayInfo.key + '\')" title="تسجيل خروج وعودة وسط اليوم">' + permBtnLabel + '</button>' : '') +
+            '</div>' +
+            (dayData.present ? (
+              '<div class="time-box">' +
+                '<div class="t-row"><span>من:</span><input type="time" value="' + dayData.inTime + '" onchange="onCellChange(' + empIdx + ', \'' + dayInfo.key + '\', \'inTime\', this.value)" /></div>' +
+                '<div class="t-row"><span>إلى:</span><input type="time" value="' + dayData.outTime + '" onchange="onCellChange(' + empIdx + ', \'' + dayInfo.key + '\', \'outTime\', this.value)" /></div>' +
+              '</div>' +
+              '<div id="break_' + empIdx + '_' + dayInfo.key + '" class="perm-drawer ' + (hasBreak ? 'open' : '') + '">' +
+                '<div class="perm-drawer-head">' +
+                  '<span>🚪 خرج من إمتى ورجع إمتى؟</span>' +
+                  (hasBreak ? '<button class="btn-clear-perm" onclick="clearDayBreak(' + empIdx + ', \'' + dayInfo.key + '\')">مسح</button>' : '') +
+                '</div>' +
+                '<div class="t-row"><span>خرج:</span><input type="time" value="' + (dayData.breakOut || '') + '" onchange="onCellChange(' + empIdx + ', \'' + dayInfo.key + '\', \'breakOut\', this.value)" /></div>' +
+                '<div class="t-row"><span>رجع:</span><input type="time" value="' + (dayData.breakIn || '') + '" onchange="onCellChange(' + empIdx + ', \'' + dayInfo.key + '\', \'breakIn\', this.value)" /></div>' +
+              '</div>' +
+              '<div class="badges-wrap">' + badges + '</div>'
+            ) : '') +
+          '</td>';
+        }
+
+        var moneyBtnLabel = showSecretMoneyGlobal && weekMoney > 0
+          ? ('💰 ' + weekMoney + ' ج.م')
+          : (weekMoney > 0 ? '🔒 مبلغ مسجل' : '🔒 + مبلغ');
+
+        rowsHtml += '<tr>' +
+          '<td class="col-name"><div class="emp-row-box">' +
+            '<span class="emp-num">' + (empIdx + 1) + '</span>' +
+            '<input class="emp-name-input" type="text" value="' + emp.name + '" onchange="updateEmployeeName(' + empIdx + ', this.value)" />' +
+            '<button class="btn-del-mini no-print" onclick="deleteEmployee(' + empIdx + ')" title="حذف الاسم">✕</button>' +
+          '</div></td>' +
+          cellsHtml +
+          '<td class="summary-cell">' +
+            '<div style="font-size:1.02rem; font-weight:900; color:var(--primary-dark);">' + (w.presentDays > 0 ? w.presentDays + (w.presentDays <= 2 ? ' يوم' : ' أيام') : '0 يوم') + '</div>' +
+            (w.extraDaysAddedFromHours > 0 ? '<div class="sub-detail" style="color:#047857;">(شامل +' + w.extraDaysAddedFromHours + ' يوم مجمّع من الساعات)</div>' : '') +
+          '</td>' +
+          '<td class="summary-cell" style="background:#f0f9ff;">' +
+            '<div style="font-size:0.98rem; font-weight:900; color:var(--sky-dark);">' + (w.remainingHoursMins > 0 ? formatMins(w.remainingHoursMins) : '0 س') + '</div>' +
+            (w.totalEarnedHoursMins > 0 ? '<div class="sub-detail">مجموع الساعات الكلي: ' + formatMins(w.totalEarnedHoursMins) + '</div>' : '') +
+          '</td>' +
+          '<td class="summary-cell">' +
+            '<div style="font-size:0.92rem; font-weight:800; color:var(--rose-dark);">' + (w.totalDeductMins > 0 ? '-' + formatMins(w.totalDeductMins) : '0 س') + '</div>' +
+            (w.rawExitMins > 0 ? '<div class="sub-detail" style="color:#c2410c;">خروج وسط اليوم: ' + formatMins(w.rawExitMins) + '</div>' : '') +
+          '</td>' +
+          '<td class="summary-cell"><div class="final-net-card">' +
+            '<div class="final-net-main">' + w.finalNetLabel + '</div>' +
+            '<div class="final-net-converted">' + w.deductionSourceText + '</div>' +
+            '<div class="final-net-sub">' + w.detailsSubText + '</div>' +
+          '</div></td>' +
+          '<td class="summary-cell">' +
+            '<div style="display:flex; flex-direction:column; align-items:center; gap:5px;">' +
+              '<label class="paid-check-wrap ' + (isPaidWeek ? 'is-paid' : '') + '">' +
+                '<input type="checkbox" ' + (isPaidWeek ? 'checked' : '') + ' onchange="toggleEmployeeWeekPaid(' + empIdx + ', this.checked)" />' +
+                '<span>' + (isPaidWeek ? 'تم القبض ✓' : 'لم يقبض') + '</span>' +
+              '</label>' +
+              '<button class="btn-perm-pill no-print ' + (weekMoney > 0 ? 'active' : '') + '" onclick="toggleMoneyDrawer(' + empIdx + ')" title="خانة المبلغ الأسبوعي المستترة">' + moneyBtnLabel + '</button>' +
+              '<div id="money_drawer_' + empIdx + '" class="perm-drawer ' + (showSecretMoneyGlobal ? 'open' : '') + '">' +
+                '<div class="perm-drawer-head"><span>💰 مبلغ هذا الأسبوع:</span></div>' +
+                '<input type="number" class="secret-money-input" value="' + (weekMoney || '') + '" placeholder="0 ج.م" onchange="updateEmployeeWeekMoney(' + empIdx + ', null, this.value)" />' +
+              '</div>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }
+
+      tbody.innerHTML = rowsHtml;
+
+      document.getElementById('kpiTitlePeriod').textContent = monthObj.label + ' — ' + WEEK_LABELS[state.currentWeek];
+      document.getElementById('kpiEmpCount').textContent = emps.length + ' موظف';
+      document.getElementById('kpiTotalDays').textContent = grandDays + ' يوم';
+      document.getElementById('kpiTotalPartialHours').textContent = formatMins(grandRemHours);
+      document.getElementById('kpiTotalExit').textContent = formatMins(grandDeduct);
+
+      renderPaidUnpaidBanner(paidNames, unpaidNames);
+      renderSecretMoneyTable();
+    }
+
+    function exportCurrentWeekCSV() {
+      var monthObj = state.months[state.currentMonth];
+      var weekObj = getCurrentWeekObj();
+      var wLabel = WEEK_LABELS[state.currentWeek === 'summary' ? 'w1' : state.currentWeek];
+      var nl = String.fromCharCode(10);
+      var bom = String.fromCharCode(0xFEFF);
+
+      var csv = bom + 'الشهر: ' + monthObj.label + ' - ' + wLabel + nl;
+      csv += 'م,الاسم,السبت,الأحد,الاثنين,الثلاثاء,الأربعاء,الخميس,قائمة الأيام (بعد تجميع الـ 10 س),قائمة الساعات الزائدة,إجمالي الساعات قبل التجميع,إجمالي الخروج والتأخير,الناتج النهائي للأسبوع,طريقة الخصم,تم القبض,المبلغ المالي' + nl;
+
+      for (var idx = 0; idx < weekObj.employees.length; idx++) {
+        var emp = weekObj.employees[idx];
+        var w = calculateEmployeeWeek(emp, state.config);
+        var dayCols = [];
+        for (var d = 0; d < DAYS.length; d++) {
+          var dk = DAYS[d].key;
+          var dd = emp.days[dk];
+          var cDay = w.perDay[dk];
+          if (!dd.present) {
+            dayCols.push('"غائب"');
+          } else {
+            var exitNote = cDay.exitMins > 0 ? (' [خرج ' + formatMins(cDay.exitMins) + ']') : '';
+            if (cDay.isHoursOnly) {
+              dayCols.push('"ساعات: ' + formatMins(cDay.workedMins) + exitNote + '"');
+            } else {
+              dayCols.push('"يوم كامل (' + dd.inTime + '-' + dd.outTime + ')' + exitNote + '"');
+            }
+          }
+        }
+        csv += [
+          idx + 1,
+          '"' + emp.name + '"',
+          dayCols.join(','),
+          w.presentDays,
+          '"' + formatMins(w.remainingHoursMins) + '"',
+          '"' + formatMins(w.totalEarnedHoursMins) + '"',
+          '"' + formatMins(w.totalDeductMins) + '"',
+          '"' + w.finalNetLabel + '"',
+          '"' + w.deductionSourceText + '"',
+          '"' + (emp.paid ? 'تم القبض' : 'لم يقبض') + '"',
+          Number(emp.weeklyAmount) || 0
+        ].join(',') + nl;
+      }
+
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'كشف_' + monthObj.label + '_' + wLabel + '.csv';
+      a.click();
+    }
+
+    function exportFullMonthExcel() {
+      var monthObj = state.months[state.currentMonth];
+      var nl = String.fromCharCode(10);
+      var bom = String.fromCharCode(0xFEFF);
+      var csv = bom + 'تقرير الشهر الكامل: ' + monthObj.label + ' (' + monthObj.key + ')' + nl + nl;
+
+      csv += '=== ملخص الشهر التجميعي (حصيلة الـ 4 أسابيع) ===' + nl;
+      csv += 'م,الاسم,الأسبوع 1,الأسبوع 2,الأسبوع 3,الأسبوع 4,إجمالي الأيام (بعد تجميع الـ 10 س),صافي الساعات الزائدة,إجمالي الخروج والتأخير بالشهر,الناتج النهائي للشهر,تفاصيل الخصم,تم القبض بالشهر,إجمالي مبالغ الشهر,إجمالي خصم التسوية,الصافي التراكمي' + nl;
+
+      var emps = monthObj.weeks.w1.employees;
+      for (var i = 0; i < emps.length; i++) {
+        var mSum = calculateEmployeeMonthSummary(i, monthObj, state.config);
+        var isPaidM = isEmployeePaidInMonth(monthObj, i, emps[i].name);
+        var deductVal = getMonthSettlementDeductTotal(monthObj, emps[i].name);
+        var cumTotal = getCumulativeMoneyForEmployee(emps[i].name, state.currentMonth);
+        csv += [
+          i + 1,
+          '"' + emps[i].name + '"',
+          '"' + mSum.weeksBreakdown.w1.finalNetLabel + '"',
+          '"' + mSum.weeksBreakdown.w2.finalNetLabel + '"',
+          '"' + mSum.weeksBreakdown.w3.finalNetLabel + '"',
+          '"' + mSum.weeksBreakdown.w4.finalNetLabel + '"',
+          mSum.presentDays,
+          '"' + formatMins(mSum.remainingHoursMins) + '"',
+          '"' + formatMins(mSum.totalDeductMins) + '"',
+          '"' + mSum.finalNetLabel + '"',
+          '"' + mSum.deductionSourceText + '"',
+          '"' + (isPaidM ? 'تم القبض' : 'لم يقبض') + '"',
+          mSum.totalMonthAmount,
+          deductVal,
+          cumTotal
+        ].join(',') + nl;
+      }
+
+      var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'شيت_شهر_' + monthObj.label + '_كامل_بالأسابيع.csv';
+      a.click();
+      showToast('تم تصدير شيت الشهر الكامل بنجاح');
+    }
+
+    function downloadBackupFile() {
+      var dataStr = JSON.stringify(state, null, 2);
+      var blob = new Blob([dataStr], { type: 'application/json;charset=utf-8;' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'أرشيف_الحضور_كل_الشهور.json';
+      a.click();
+      showToast('تم تحميل ملف الأرشيف للاحتفاظ به على جهازك');
+    }
+
+    function importBackupFile(event) {
+      var file = event.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          var parsed = JSON.parse(e.target.result);
+          if (parsed && parsed.months) {
+            state = parsed;
+            var mKeys = Object.keys(state.months);
+            for (var i = 0; i < mKeys.length; i++) {
+              ensureSettlementStructure(state.months[mKeys[i]]);
+            }
+            saveState();
+            syncConfigInputs();
+            renderMonthSelector();
+            updateWeekTabsUI();
+            renderAll();
+            showToast('تم استرجاع أرشيف الشهور بنجاح!');
+          } else {
+            showToast('ملف غير صالح');
+          }
+        } catch (err) {
+          showToast('حدث خطأ أثناء قراءة الملف');
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = '';
+    }
+
+    function initApp() {
+      loadState();
+      renderMonthSelector();
+      updateWeekTabsUI();
+      renderAll();
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initApp);
+    } else {
+      initApp();
+    }
+  </script>
+</body>
+</html>
